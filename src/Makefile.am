@@ -157,7 +157,6 @@ libgnome_shell_sources =		\
 	shell-app-private.h		\
 	shell-app-system-private.h	\
 	shell-global-private.h		\
-	shell-window-tracker-private.h	\
 	shell-wm-private.h		\
 	gnome-shell-plugin.c		\
 	shell-app.c			\

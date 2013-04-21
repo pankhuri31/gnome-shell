@@ -12,8 +12,8 @@
 #include "shell-enum-types.h"
 #include "shell-global.h"
 #include "shell-util.h"
+#include "shell-window-tracker.h"
 #include "shell-app-system-private.h"
-#include "shell-window-tracker-private.h"
 #include "st.h"
 #include "gtkactionmuxer.h"
 
@@ -1167,24 +1167,6 @@ shell_app_request_quit (ShellApp   *app)
   return TRUE;
 }
 
-static void
-_gather_pid_callback (GDesktopAppInfo   *gapp,
-                      GPid               pid,
-                      gpointer           data)
-{
-  ShellApp *app;
-  ShellWindowTracker *tracker;
-
-  g_return_if_fail (data != NULL);
-
-  app = SHELL_APP (data);
-  tracker = shell_window_tracker_get_default ();
-
-  _shell_window_tracker_add_child_process_app (tracker,
-                                               pid,
-                                               app);
-}
-
 /**
  * shell_app_launch:
  * @timestamp: Event timestamp, or 0 for current event timestamp
@@ -1236,12 +1218,9 @@ shell_app_launch (ShellApp     *app,
   gdk_app_launch_context_set_timestamp (context, timestamp);
   gdk_app_launch_context_set_desktop (context, workspace);
 
-  ret = g_desktop_app_info_launch_uris_as_manager (app->info, uris,
-                                                   G_APP_LAUNCH_CONTEXT (context),
-                                                   G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD,
-                                                   NULL, NULL,
-                                                   _gather_pid_callback, app,
-                                                   error);
+  ret = g_app_info_launch_uris (G_APP_INFO (app->info), uris,
+                                G_APP_LAUNCH_CONTEXT (context),
+                                error);
   g_object_unref (context);
 
   return ret;
