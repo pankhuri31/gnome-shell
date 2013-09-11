@@ -27,19 +27,11 @@ const WorkspacesViewBase = new Lang.Class({
     Name: 'WorkspacesViewBase',
 
     _init: function(monitorIndex) {
-        this.actor = new St.Widget({ style_class: 'workspaces-view',
-                                     reactive: true });
-        this.actor.connect('destroy', Lang.bind(this, this._onDestroy));
-
-        // The actor itself isn't a drop target, so we don't want to pick on its area
-        this.actor.set_size(0, 0);
-
         this._monitorIndex = monitorIndex;
 
         this._fullGeometry = null;
         this._actualGeometry = null;
 
-        this._inDrag = false;
         this._windowDragBeginId = Main.overview.connect('window-drag-begin', Lang.bind(this, this._dragBegin));
         this._windowDragEndId = Main.overview.connect('window-drag-end', Lang.bind(this, this._dragEnd));
     },
@@ -58,12 +50,10 @@ const WorkspacesViewBase = new Lang.Class({
     },
 
     _dragBegin: function(overview, clone) {
-        this._inDrag = true;
         this._setReservedSlot(clone);
     },
 
     _dragEnd: function() {
-        this._inDrag = false;
         this._setReservedSlot(null);
     },
 
@@ -82,6 +72,45 @@ const WorkspacesViewBase = new Lang.Class({
     },
 });
 
+const WorkspacesViewLayout = new Lang.Class({
+    Name: 'WorkspacesViewLayout',
+    Extends: Clutter.FixedLayout,
+
+    setFullGeometry: function(geometry) {
+        this._fullGeometry = geometry;
+    },
+
+    // XXX: this is disgusting; should clean up
+    vfunc_get_preferred_width: function() {
+        return [global.stage.width, global.stage.width];
+    },
+
+    vfunc_get_preferred_height: function() {
+        return [global.stage.height, global.stage.height];
+    },
+
+    vfunc_allocate: function(container, box, flags) {
+        if (!this._fullGeometry)
+            return;
+
+        let width = this._fullGeometry.width;
+        let height = this._fullGeometry.height;
+        let y = 0;
+        let children = container.get_children();
+        children.forEach(function(child) {
+            let childBox = new Clutter.ActorBox();
+            childBox.x1 = 0;
+            childBox.x2 = width;
+            childBox.y1 = y;
+            childBox.y2 = y + height;
+
+            child.allocate(childBox, flags);
+
+            y += height;
+        });
+    },
+});
+
 const WorkspacesView = new Lang.Class({
     Name: 'WorkspacesView',
     Extends: WorkspacesViewBase,
@@ -89,7 +118,11 @@ const WorkspacesView = new Lang.Class({
     _init: function(monitorIndex) {
         this.parent(monitorIndex);
 
-        this._animating = false; // tweening
+        this._workspacesLayout = new WorkspacesViewLayout();
+        this.actor = new Clutter.ScrollActor({ layout_manager: this._workspacesLayout,
+                                               scroll_mode: Clutter.ScrollMode.VERTICALLY });
+        this.actor.connect('destroy', Lang.bind(this, this._onDestroy));
+
         this._scrolling = false; // swipe-scrolling
         this._animatingScroll = false; // programatically updating the adjustment
 
@@ -127,6 +160,8 @@ const WorkspacesView = new Lang.Class({
     },
 
     _syncGeometry: function() {
+        this._workspacesLayout.setFullGeometry(this._fullGeometry);
+
         for (let i = 0; i < this._workspaces.length; i++)
             this._workspaces[i].setFullGeometry(this._fullGeometry);
         for (let i = 0; i < this._workspaces.length; i++)
@@ -157,64 +192,7 @@ const WorkspacesView = new Lang.Class({
 
     _scrollToActive: function() {
         let active = global.screen.get_active_workspace_index();
-
-        this._updateWorkspaceActors(true);
         this._updateScrollAdjustment(active);
-    },
-
-    // Update workspace actors parameters
-    // @showAnimation: iff %true, transition between states
-    _updateWorkspaceActors: function(showAnimation) {
-        let active = global.screen.get_active_workspace_index();
-
-        this._animating = showAnimation;
-
-        for (let w = 0; w < this._workspaces.length; w++) {
-            let workspace = this._workspaces[w];
-
-            Tweener.removeTweens(workspace.actor);
-
-            let y = (w - active) * this._fullGeometry.height;
-
-            if (showAnimation) {
-                let params = { y: y,
-                               time: WORKSPACE_SWITCH_TIME,
-                               transition: 'easeOutQuad'
-                             };
-                // we have to call _updateVisibility() once before the
-                // animation and once afterwards - it does not really
-                // matter which tween we use, so we pick the first one ...
-                if (w == 0) {
-                    this._updateVisibility();
-                    params.onComplete = Lang.bind(this,
-                        function() {
-                            this._animating = false;
-                            this._updateVisibility();
-                        });
-                }
-                Tweener.addTween(workspace.actor, params);
-            } else {
-                workspace.actor.set_position(0, y);
-                if (w == 0)
-                    this._updateVisibility();
-            }
-        }
-    },
-
-    _updateVisibility: function() {
-        let active = global.screen.get_active_workspace_index();
-
-        for (let w = 0; w < this._workspaces.length; w++) {
-            let workspace = this._workspaces[w];
-            if (this._animating || this._scrolling) {
-                workspace.actor.show();
-            } else {
-                if (this._inDrag)
-                    workspace.actor.visible = (Math.abs(w - active) <= 1);
-                else
-                    workspace.actor.visible = (w == active);
-            }
-        }
     },
 
     _updateScrollAdjustment: function(index) {
@@ -247,9 +225,6 @@ const WorkspacesView = new Lang.Class({
                 this._workspaces.push(workspace);
                 this.actor.add_actor(workspace.actor);
             }
-
-            if (this._fullGeometry)
-                this._updateWorkspaceActors(false);
         } else if (newNumWorkspaces < oldNumWorkspaces) {
             let nRemoved = (newNumWorkspaces - oldNumWorkspaces);
             let removed = this._workspaces.splice(oldNumWorkspaces, nRemoved);
@@ -283,52 +258,32 @@ const WorkspacesView = new Lang.Class({
 
     endSwipeScroll: function() {
         this._scrolling = false;
-
-        // Make sure title captions etc are shown as necessary
         this._scrollToActive();
-        this._updateVisibility();
     },
 
-    // sync the workspaces' positions to the value of the scroll adjustment
-    // and change the active workspace if appropriate
     _onScroll: function(adj) {
-        if (this._animatingScroll)
-            return;
+        if (!this._animatingScroll) {
+            let active = global.screen.get_active_workspace_index();
+            let current = Math.round(adj.value);
 
-        let active = global.screen.get_active_workspace_index();
-        let current = Math.round(adj.value);
+            if (active != current) {
+                if (!this._workspaces[current]) {
+                    // The current workspace was destroyed. This could happen
+                    // when you are on the last empty workspace, and consolidate
+                    // windows using the thumbnail bar.
+                    // In that case, the intended behavior is to stay on the empty
+                    // workspace, which is the last one, so pick it.
+                    current = this._workspaces.length - 1;
+                }
 
-        if (active != current) {
-            if (!this._workspaces[current]) {
-                // The current workspace was destroyed. This could happen
-                // when you are on the last empty workspace, and consolidate
-                // windows using the thumbnail bar.
-                // In that case, the intended behavior is to stay on the empty
-                // workspace, which is the last one, so pick it.
-                current = this._workspaces.length - 1;
+                let metaWorkspace = this._workspaces[current].metaWorkspace;
+                metaWorkspace.activate(global.get_current_time());
             }
-
-            let metaWorkspace = this._workspaces[current].metaWorkspace;
-            metaWorkspace.activate(global.get_current_time());
         }
 
-        let last = this._workspaces.length - 1;
-        let firstWorkspaceY = this._workspaces[0].actor.y;
-        let lastWorkspaceY = this._workspaces[last].actor.y;
-        let workspacesHeight = lastWorkspaceY - firstWorkspaceY;
-
-        if (adj.upper == 1)
-            return;
-
-        let currentY = firstWorkspaceY;
-        let newY =  - adj.value / (adj.upper - 1) * workspacesHeight;
-
-        let dy = newY - currentY;
-
-        for (let i = 0; i < this._workspaces.length; i++) {
-            this._workspaces[i].actor.visible = Math.abs(i - adj.value) <= 1;
-            this._workspaces[i].actor.y += dy;
-        }
+        let height = this._fullGeometry.height;
+        let y = height * adj.value;
+        this.actor.scroll_to_point(new Clutter.Point({ x: 0, y: y }));
     },
 });
 Signals.addSignalMethods(WorkspacesView.prototype);
@@ -339,6 +294,10 @@ const ExtraWorkspaceView = new Lang.Class({
 
     _init: function(monitorIndex) {
         this.parent(monitorIndex);
+
+        this.actor = new St.Widget({ style_class: 'workspaces-view' });
+        this.actor.connect('destroy', Lang.bind(this, this._onDestroy));
+
         this._workspace = new Workspace.Workspace(null, monitorIndex);
         this.actor.add_actor(this._workspace.actor);
     },
@@ -490,7 +449,6 @@ const WorkspacesDisplay = new Lang.Class({
             else
                 view = new WorkspacesView(i);
 
-            view.actor.connect('scroll-event', Lang.bind(this, this._onScrollEvent));
             if (i == this._primaryIndex) {
                 this._scrollAdjustment = view.scrollAdjustment;
                 this._scrollAdjustment.connect('notify::value',
