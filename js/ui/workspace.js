@@ -333,13 +333,13 @@ const WindowOverlay = new Lang.Class({
     hide: function() {
         this._hidden = true;
         this.title.hide();
-
+        this.closeButton.hide();
         this.hideCloseButton();
     },
 
     show: function() {
         this._hidden = false;
-
+        this.closeButton.show();
         this.title.show();
         if (this._windowClone.actor.has_pointer)
             this._animateVisible();
@@ -354,8 +354,14 @@ const WindowOverlay = new Lang.Class({
         this._parentActor.raise_top();
         Tweener.addTween(this.title,
                          { opacity: 255,
-                           time: CLOSE_BUTTON_FADE_TIME,
+			   time: CLOSE_BUTTON_FADE_TIME,
                            transition: 'easeOutQuad' });
+        if (this._windowCanClose()) {
+            this.closeButton.opacity = 0;
+            this._parentActor.raise_top();
+            Tweener.addTween(this.closeButton,
+                             { opacity: 255 });
+        }
     },
 
     chromeHeights: function () {
@@ -491,16 +497,6 @@ const WindowOverlay = new Lang.Class({
 
     _animateVisible: function() {
         this._parentActor.raise_top();
-
-        if (this._windowCanClose()) {
-            this.closeButton.show();
-            this.closeButton.opacity = 0;
-            Tweener.addTween(this.closeButton,
-                             { opacity: 255,
-                               time: CLOSE_BUTTON_FADE_TIME,
-                               transition: 'easeOutQuad' });
-        }
-
         this.border.show();
         this.border.opacity = 0;
         Tweener.addTween(this.border,
@@ -509,15 +505,10 @@ const WindowOverlay = new Lang.Class({
                            transition: 'easeOutQuad' });
 
         this.title.add_style_pseudo_class('hover');
+        this.closeButton.add_style_pseudo_class('hover');
     },
 
     _animateInvisible: function() {
-        this.closeButton.opacity = 255;
-        Tweener.addTween(this.closeButton,
-                         { opacity: 0,
-                           time: CLOSE_BUTTON_FADE_TIME,
-                           transition: 'easeInQuad' });
-
         this.border.opacity = 255;
         Tweener.addTween(this.border,
                          { opacity: 0,
@@ -525,6 +516,7 @@ const WindowOverlay = new Lang.Class({
                            transition: 'easeInQuad' });
 
         this.title.remove_style_pseudo_class('hover');
+        this.closeButton.remove_style_pseudo_class('hover');
     },
 
     _onEnter: function() {
@@ -559,9 +551,9 @@ const WindowOverlay = new Lang.Class({
             Mainloop.source_remove(this._idleToggleCloseId);
             this._idleToggleCloseId = 0;
         }
-        this.closeButton.hide();
         this.border.hide();
         this.title.remove_style_pseudo_class('hover');
+        this.closeButton.remove_style_pseudo_class('hover');
     },
 
     _onStyleChanged: function() {
