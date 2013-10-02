@@ -25,7 +25,7 @@ const SCROLL_SCALE_AMOUNT = 100 / 5;
 const WINDOW_CLONE_MAXIMUM_SCALE = 0.7;
 
 const LIGHTBOX_FADE_TIME = 0.1;
-const CLOSE_BUTTON_FADE_TIME = 0.1;
+const DECORATION_FADE_TIME = 0.1;
 
 const DRAGGING_WINDOW_OPACITY = 100;
 
@@ -304,25 +304,18 @@ const WindowOverlay = new Lang.Class({
         button.connect('clicked', Lang.bind(this, this._closeWindow));
 
         windowClone.actor.connect('destroy', Lang.bind(this, this._onDestroy));
-        windowClone.actor.connect('enter-event',
-                                  Lang.bind(this, this._onEnter));
-        windowClone.actor.connect('leave-event',
-                                  Lang.bind(this, this._onLeave));
+        windowClone.actor.connect('enter-event', Lang.bind(this, this._onEnter));
+        windowClone.actor.connect('leave-event', Lang.bind(this, this._onLeave));
 
         this._windowAddedId = 0;
-
-        button.hide();
-
         this.title = title;
         this.closeButton = button;
 
         parentActor.add_actor(this.title);
         parentActor.add_actor(this.border);
         parentActor.add_actor(this.closeButton);
-        title.connect('style-changed',
-                      Lang.bind(this, this._onStyleChanged));
-        button.connect('style-changed',
-                       Lang.bind(this, this._onStyleChanged));
+        title.connect('style-changed', Lang.bind(this, this._onStyleChanged));
+        button.connect('style-changed', Lang.bind(this, this._onStyleChanged));
         this.border.connect('style-changed', Lang.bind(this, this._onStyleChanged));
         // force a style change if we are already on a stage - otherwise
         // the signal will be emitted normally when we are added
@@ -334,7 +327,7 @@ const WindowOverlay = new Lang.Class({
         this._hidden = true;
         this.title.hide();
         this.closeButton.hide();
-        this.hideCloseButton();
+        this.hideDecoration();
     },
 
     show: function() {
@@ -354,13 +347,15 @@ const WindowOverlay = new Lang.Class({
         this._parentActor.raise_top();
         Tweener.addTween(this.title,
                          { opacity: 255,
-			   time: CLOSE_BUTTON_FADE_TIME,
+			   time: DECORATION_FADE_TIME,
                            transition: 'easeOutQuad' });
         if (this._windowCanClose()) {
             this.closeButton.opacity = 0;
             this._parentActor.raise_top();
             Tweener.addTween(this.closeButton,
-                             { opacity: 255 });
+                             { opacity: 255,
+			       time: DECORATION_FADE_TIME,
+                               transition: 'easeOutQuad' });
         }
     },
 
@@ -501,22 +496,20 @@ const WindowOverlay = new Lang.Class({
         this.border.opacity = 0;
         Tweener.addTween(this.border,
                          { opacity: 255,
-                           time: CLOSE_BUTTON_FADE_TIME,
+                           time: DECORATION_FADE_TIME,
                            transition: 'easeOutQuad' });
 
         this.title.add_style_pseudo_class('hover');
-        this.closeButton.add_style_pseudo_class('hover');
     },
 
     _animateInvisible: function() {
         this.border.opacity = 255;
         Tweener.addTween(this.border,
                          { opacity: 0,
-                           time: CLOSE_BUTTON_FADE_TIME,
+                           time: DECORATION_FADE_TIME,
                            transition: 'easeInQuad' });
 
         this.title.remove_style_pseudo_class('hover');
-        this.closeButton.remove_style_pseudo_class('hover');
     },
 
     _onEnter: function() {
@@ -528,15 +521,15 @@ const WindowOverlay = new Lang.Class({
             return;
 
         this._animateVisible();
-        this.emit('show-close-button');
+        this.emit('show-decoration');
     },
 
     _onLeave: function() {
         if (this._idleToggleCloseId == 0)
-            this._idleToggleCloseId = Mainloop.timeout_add(750, Lang.bind(this, this._idleToggleCloseButton));
+            this._idleToggleCloseId = Mainloop.timeout_add(750, Lang.bind(this, this._idleToggleDecoration));
     },
 
-    _idleToggleCloseButton: function() {
+    _idleToggleDecoration: function() {
         this._idleToggleCloseId = 0;
 
         if (!this._windowClone.actor.has_pointer &&
@@ -546,14 +539,13 @@ const WindowOverlay = new Lang.Class({
         return false;
     },
 
-    hideCloseButton: function() {
+    hideDecoration: function() {
         if (this._idleToggleCloseId > 0) {
             Mainloop.source_remove(this._idleToggleCloseId);
             this._idleToggleCloseId = 0;
         }
         this.border.hide();
         this.title.remove_style_pseudo_class('hover');
-        this.closeButton.remove_style_pseudo_class('hover');
     },
 
     _onStyleChanged: function() {
@@ -1481,7 +1473,7 @@ const Workspace = new Lang.Class({
 
         this.actor.add_actor(clone.actor);
 
-        overlay.connect('show-close-button', Lang.bind(this, this._onShowOverlayClose));
+        overlay.connect('show-decoration', Lang.bind(this, this._onShowOverlayDecoration));
 
         if (this._windows.length == 0)
             clone.setStackAbove(null);
@@ -1494,12 +1486,12 @@ const Workspace = new Lang.Class({
         return [clone, overlay];
     },
 
-    _onShowOverlayClose: function (windowOverlay) {
+    _onShowOverlayDecoration: function (windowOverlay) {
         for (let i = 0; i < this._windowOverlays.length; i++) {
             let overlay = this._windowOverlays[i];
             if (overlay == windowOverlay)
                 continue;
-            overlay.hideCloseButton();
+            overlay.hideDecoration();
         }
     },
 
